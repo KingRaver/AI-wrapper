@@ -1,0 +1,207 @@
+interface AIModelConfig {
+  provider: string;
+  model: string;
+  apiKey: string;
+  baseURL?: string;
+  maxRetries?: number;
+  timeout?: number;
+}
+
+interface AIRequestOptions {
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  presencePenalty?: number;
+  frequencyPenalty?: number;
+  stop?: string[];
+}
+
+interface AIResponse {
+  content: string;
+  usage: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
+  metadata: {
+    model: string;
+    provider: string;
+    latency: number;
+  };
+}
+
+class AIServiceError extends Error {
+  constructor(
+    message: string,
+    public code: string,
+    public status?: number,
+    public raw?: any
+  ) {
+    super(message);
+    this.name = 'AIServiceError';
+  }
+}
+
+class AIWrapper {
+  private config: AIModelConfig;
+  private axios: any;
+
+  constructor(config: AIModelConfig) {
+    this.config = {
+      maxRetries: 3,
+      timeout: 30000,
+      ...config,
+    };
+    this.axios = require('axios').create({
+      baseURL: this.config.baseURL,
+      timeout: this.config.timeout,
+      headers: {
+        'Authorization': `Bearer ${this.config.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+    });
+  }
+
+  async generateCompletion(
+    prompt: string,
+    options: AIRequestOptions = {}
+  ): Promise<AIResponse> {
+    const startTime = Date.now();
+
+    try {
+      const response = await this.makeRequest(prompt, options);
+      const endTime = Date.now();
+
+      return this.formatResponse(response, endTime - startTime);
+    } catch (error) {
+      throw this.handleError(error);
+    }
+  }
+
+  private async makeRequest(prompt: string, options: AIRequestOptions) {
+    const requestBody = this.buildRequestBody(prompt, options);
+    let lastError;
+
+    for (let attempt = 1; attempt <= this.config.maxRetries!; attempt++) {
+      try {
+        return await this.axios.post('/completions', requestBody);
+      } catch (error) {
+        lastError = error;
+        if (!this.shouldRetry(error, attempt)) {
+          break;
+        }
+        await this.sleep(this.getRetryDelay(attempt));
+      }
+    }
+
+    throw lastError;
+  }
+
+  private buildRequestBody(prompt: string, options: AIRequestOptions) {
+    return {
+      model: this.config.model,
+      prompt,
+      temperature: options.temperature ?? 0.7,
+      max_tokens: options.maxTokens ?? 150,
+      top_p: options.topP ?? 1,
+      presence_penalty: options.presencePenalty ?? 0,
+      frequency_penalty: options.frequencyPenalty ?? 0,
+      stop: options.stop,
+    };
+  }
+
+  private formatResponse(response: any, latency: number): AIResponse {
+    return {
+      content: response.data.choices[0].text.trim(),
+      usage: {
+        promptTokens: response.data.usage.prompt_tokens,
+        completionTokens: response.data.usage.completion_tokens,
+        totalTokens: response.data.usage.total_tokens,
+      },
+      metadata: {
+        model: this.config.model,
+        provider: this.config.provider,
+        latency,
+      },
+    };
+  }
+
+  private handleError(error: any): AIServiceError {
+    if (error.response) {
+      const status = error.response.status;
+      const data = error.response.data;
+
+      switch (status) {
+        case 401:
+          return new AIServiceError('Invalid API key', 'UNAUTHORIZED', status, data);
+        case 429:
+          return new AIServiceError('Rate limit exceeded', 'RATE_LIMIT', status, data);
+        case 500:
+          return new AIServiceError('Server error', 'SERVER_ERROR', status, data);
+        default:
+          return new AIServiceError(
+            `API request failed: ${data.error?.message || 'Unknown error'}`,
+            'API_ERROR',
+            status,
+            data
+          );
+      }
+    }
+
+    if (error.code === 'ECONNABORTED') {
+      return new AIServiceError('Request timeout', 'TIMEOUT');
+    }
+
+    return new AIServiceError('Network error', 'NETWORK_ERROR');
+  }
+
+  private shouldRetry(error: any, attempt: number): boolean {
+    if (attempt >= this.config.maxRetries!) {
+      return false;
+    }
+
+    const status = error.response?.status;
+    return status === 429 || status === 500 || status === 503;
+  }
+
+  private getRetryDelay(attempt: number): number {
+    return Math.min(1000 * Math.pow(2, attempt - 1), 8000);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+}
+
+// Example usage:
+const config: AIModelConfig = {
+  provider: 'openai',
+  model: 'gpt-3.5-turbo',
+  apiKey: 'your-api-key',
+  baseURL: 'https://api.openai.com/v1',
+};
+
+const ai = new AIWrapper(config);
+
+async function example() {
+  try {
+    const response = await ai.generateCompletion(
+      'Explain quantum computing in simple terms.',
+      {
+        temperature: 0.7,
+        maxTokens: 150,
+      }
+    );
+    console.log('AI Response:', response.content);
+    console.log('Usage:', response.usage);
+    console.log('Metadata:', response.metadata);
+  } catch (error) {
+    if (error instanceof AIServiceError) {
+      console.error('AI Service Error:', error.message);
+      console.error('Error Code:', error.code);
+      console.error('Status:', error.status);
+    } else {
+      console.error('Unexpected Error:', error);
+    }
+  }
+}
