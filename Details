@@ -1,0 +1,65 @@
+Think of this wrapper like a universal remote control for AI services. Just like a universal remote can work with different TV brands but gives you one consistent way to control them, this wrapper lets you work with different AI services (like OpenAI, Anthropic, etc.) in a consistent way.
+
+Let's go through the main parts:
+
+The Configuration (AIModelConfig)
+This is like setting up your remote control. You need to tell it:
+- Which AI service you're using (provider)
+- Which specific AI model you want to use (model)
+- Your access key (apiKey)
+- Where to find the service (baseURL)
+- How many times to retry if something fails (maxRetries)
+- How long to wait before giving up (timeout)
+
+The Request Options (AIRequestOptions)
+These are the settings you can adjust when sending a request to the AI:
+- Temperature: How creative vs precise you want the AI to be
+- MaxTokens: How long the response can be
+- TopP: Another way to control response variety
+- Presence/Frequency Penalties: Ways to prevent repetition
+
+The Response Format (AIResponse)
+When the AI replies, the wrapper organizes the information into three parts:
+- Content: The actual response from the AI
+- Usage: How many tokens (pieces of text) were used
+- Metadata: Technical details like which model was used and how long it took
+
+Error Handling (AIServiceError)
+This is like having a troubleshooting guide. When something goes wrong, it tells you:
+- What kind of error occurred (invalid key, server down, etc.)
+- Why it happened
+- Any additional technical details that might help fix the problem
+
+The Main Wrapper Class (AIWrapper)
+This is the heart of the system. It:
+1. Takes your configuration when you first set it up
+2. Handles sending requests to the AI service
+3. Retries automatically if there are temporary problems
+4. Formats the responses in a consistent way
+5. Manages errors if something goes wrong
+
+Here's a simple example of how you'd use it:
+
+```typescript
+// Set up the wrapper
+const ai = new AIWrapper({
+  provider: 'openai',
+  model: 'gpt-3.5-turbo',
+  apiKey: 'your-api-key',
+  baseURL: 'https://api.openai.com/v1',
+});
+
+// Use it to get an AI response
+try {
+  const response = await ai.generateCompletion('What is artificial intelligence?');
+  console.log('AI says:', response.content);
+} catch (error) {
+  console.error('Something went wrong:', error.message);
+}
+```
+
+The Benefits
+1. Consistent Interface: You don't need to learn different ways to work with different AI services
+2. Error Protection: It handles problems gracefully and retries when appropriate
+3. Clean Organization: Responses and errors are formatted in a predictable way
+4. Flexibility: You can easily switch between different AI providers or models
